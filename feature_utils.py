@@ -98,7 +98,7 @@ def plaqueburden(lu,pl):
     y = np.array(pl)
     return y/(x + y)
     
-def lesion(lu,pl,distal,os,th,gap):
+def lesion(lu,pl,distal,os,pbth,gap):
     """
     pb: plaqueburden list
     th: threshold (.4, .7)
@@ -106,7 +106,7 @@ def lesion(lu,pl,distal,os,th,gap):
     returns nested list with lesion start and end
     """
     
-    index = np.where(plaqueburden(lu,pl) > th)[0]
+    index = np.where(plaqueburden(lu,pl) > pbth)[0]
     index2 = index[(index >= distal) & (index <= os)]   #only lesion within roi
     if len(index2 != 0):
         ### combine lesions if number of frames between is less than gap
@@ -128,15 +128,23 @@ def lesion(lu,pl,distal,os,th,gap):
             #print(i, count, start)
             count +=1
         runs.append([start,end])
-    
-        ### check if lesion is greater than 300
-        #check = []
-        #for r in runs:
-        #    start = r[0]
-        #    end = r[1]
-        #    check.append(end-start>300)
-    
-        return runs
+        
+        #check lesion length greater than 300
+        check = []
+        for r in runs:
+            start = r[0]
+            end = r[1]
+            if (end - start) > 300:
+                check.append(True)
+            else:
+                check.append(False)
+        check = np.array(check)
+        runs = np.array(runs)
+        runs = list(runs[check])
+        if len(runs) == 0:
+            return -1
+        else:
+            return runs
     else:
         return -1
     
@@ -155,27 +163,31 @@ def mla(luA,distal,os):
     roi = luA[distal:os] 
     return min(roi)
 
-def fromos_pb(lu,pl,distal,os,th,gap): 
+def fromos_pb(luA,plA,distal,os,pbth,gap): 
     """
-    pb: plaqueburden list
-    th: threshold (0.4, 0.7)
+    luA/plA: list of lumen/plaque area mm2
+    pbth: threshold (0.4, 0.7)
     gap: number of frames to ignore with pb below threshold in lesion
+    distal: roi distal
     os: roi ostium
     returns distance from OS to farthest right lesion proximal site
     """
-    lesionlist = lesion(lu,pl,distal,os,th,gap)
+    lesionlist = lesion(luA,plA,distal,os,pbth,gap)
     if(lesionlist == -1):
         return 0
     else:
-        lesionproximal = lesionlst[:,1][-1] #ignores multiple lesions in roi and only uses farthest right lesion
-        print(lesionproximal,os)
+        lesionproximal = lesionlist[-1][-1] #ignores multiple lesions in roi and only uses farthest right lesion
         return (os - lesionproximal) #if negative the lesion is on outside of roi ostium
 
 def fromos_mla(luA,distal,os): 
-    
-    indexmla = np.where(luA == mla(luA,distal,os)) #without smoothing this could return multiple mla indexes when mla = 0
-    print(indexmla,os)
-    return (os - indexmla)[0]
+    """
+    luA: list of lumen area mm2
+    distal: roi distal
+    os: roi ostium
+    returns number of frames between MLA and OS
+    """
+    indexmla = np.argmin(luA[distal:os])
+    return os - indexmla
 
 
 
@@ -228,7 +240,7 @@ def max_pb(luA,plA,distal,os):
     roi = pb[distal:os]
     return max(roi)
 
-def numberofpb(pb,th,distal,os):
+def numberofpb(pb,pbth,distal,os):
     """
     pb: plaqueburden list
     th: threshold (0.4, 0.7)
@@ -236,8 +248,8 @@ def numberofpb(pb,th,distal,os):
     os: roi ostium 
     returns number of frames with pb > threshold
     """
-    roi = pb[distal:os]
-    index = np.where(roi > th)[0]
+    roi = np.array(pb[distal:os])
+    index = np.where(roi > pbth)[0]
     return len(index)
 
 
@@ -259,32 +271,35 @@ def Intersection(lst1, lst2):
     return set(lst1).intersection(lst2)
 
 
-def no_lumen_roi(luA,plA,distal,os,th,pbth=1):
+def no_lumen_roi(luA,plA,distal,os,th,pbth):
     """
     luA,plA: list of lumen/plaque area mm2
     distal: roi distal
     os: roi ostium
     th: threshold (4,3,2.5)
-    pbth: plaqueburden threshold (1-default,0.7,0.4)
+    pbth: plaqueburden threshold (0.4-default,0.7,0)
     returns number of frames greater than thresh in roi
     """
     roi = np.array(luA[distal:os])
-    numlua = np.where(roi < th)
+    numlua = np.where(roi < th)  #converts numlua(tuple) to list
+    numlua = numlua[0].tolist()
     
-    if pbt != 1:
+    if pbth != 1:
         x = np.array(luA[distal:os])
         y = np.array(plA[distal:os])
         pb = y/(x + y)
         pb2 = np.where(pb > pbth)
+        pb2 = pb2[0].tolist()  #converts pb2(tuple) to list
         numlua = list(Intersection(numlua,pb2))
         
     return len(numlua)
 
-def sum_plaque_roi(luA,plA,distal,os,pbth=1):
+def sum_plaque_roi(luA,plA,distal,os,pbth):
     """
     plA: list of plaque area mm2
     distal: roi distal
     os: roi ostium
+    pbth: plaqueburden threshold (0.4-default,0.7,0)
     returns the total plaque area mm2 in roi
     """
     if pbth == 1:
@@ -294,16 +309,16 @@ def sum_plaque_roi(luA,plA,distal,os,pbth=1):
         y = np.array(plA[distal:os])
         pb = y/(x + y)
         pb2 = np.where(pb > pbth)
-        roi = roi[pb2]
+        roi = plA[pb2]
         
     return sum(roi)
     
-def sum_eem_roi(luA,plA,distal,os,pbth=1):
+def sum_eem_roi(luA,plA,distal,os,pbth):
     """
     luA, plA: list of lumen/plaque area mm2
     distal: roi distal
     os: roi ostium
-    pbth: plaqueburden threshold (1-default,0.4,0.7)
+    pbth: plaqueburden threshold (0.4-default,0.7,0)
     returns the total eem area mm2 in roi
     """
     x = np.array(luA[distal:os])
@@ -317,79 +332,88 @@ def sum_eem_roi(luA,plA,distal,os,pbth=1):
         
     return eem
     
-def pb_roi(luA,plA,distal,os,pbth=1):
+def pb_roi(luA,plA,distal,os,pbth):
     """
     luA, plA: list of lumen/plaque area mm2
     distal: roi distal
     os: roi ostium
-    pbth: plaqueburden threshold (1-default,0.4,0.7)
+    pbth: plaqueburden threshold (0.4-default,0.7,0)
     returns the overall plaqueburden in roi
     """
     plsum = sum_plaque_roi(luA,plA,distal,os,pbth)
     eemsum = sum_eem_roi(luA,plA,distal,os,pbth)
-    pb = plsum/eemsum
-    
-    return pb
+    if eemsum == 0:
+        return 0
+    else:
+        pb = plsum/eemsum
+        return pb
 
-def mean_lumen_roi(lu,pl,distal,os,pbth=1):
+
+def mean_lumen_roi(luA,plA,distal,os,pbth):
     """
     lu: list of lumen area
     distal: roi distal
     os: roi ostium
-    pbth: plaqueburden threshold (1-default,0.4,0.7)
+    pbth: plaqueburden threshold (0.4-default,0.7,0)
     returns the mean lumen in roi
     """
-    roi = lu[distal:os]
-    
-    if pbt != 1:
-        x = np.array(luA[distal:os])
-        y = np.array(plA[distal:os])
-        pb = y/(x + y)
-        pb2 = np.where(pb > pbth)
+    x = np.array(luA[distal:os])
+    y = np.array(plA[distal:os])
+    pb = y/(x + y)
+    pb2 = np.where(pb > pbth)
+    if len(pb2[0])==0:     #if no values above thresh return 0
+        return 0
+    else:
+        roi = luA[distal:os]
         roi = roi[pb2]
+        return np.mean(roi)
         
-    return mean(roi)
+    
 
 
-def mean_plaque_roi(pl,distal,os,pbth=1):
+def mean_plaque_roi(luA,plA,distal,os,pbth):
     """
     lu: list of plaque area
     distal: roi distal
     os: roi ostium
-    pbth: plaqueburden threshold (1-default,0.4,0.7)
+    pbth: plaqueburden threshold (0.4-default,0.7,0)
     returns the mean plaque in roi
     """
-    roi = pl[distal:os]
-    
-    if pbt != 1:
-        x = np.array(luA[distal:os])
-        y = np.array(plA[distal:os])
-        pb = y/(x + y)
-        pb2 = np.where(pb > pbth)
+    x = np.array(luA[distal:os])
+    y = np.array(plA[distal:os])
+    pb = y/(x + y)
+    pb2 = np.where(pb > pbth)
+    if len(pb2[0])==0:     #if no values above thresh return 0
+        return 0
+    else:
+        roi = plA[distal:os]
         roi = roi[pb2]
+        return np.mean(roi) 
     
-    return mean(roi) 
+    
 
-def mean_eem_roi(pl,distal,os,pbth=1):
+def mean_eem_roi(luA,plA,distal,os,pbth):
     """
     lu,pl: list
     distal: roi distal
     os: roi ostium
-    pbth: plaqueburden threshold (1-default,0.4,0.7)
+    pbth: plaqueburden threshold (0.4-default,0.7,0)
     returns the mean eem in roi
     """
-    x = np.array(lu[distal:os])
-    y = np.array(pl[distal:os])
-    roi = x + y
-    
-    if pbt != 1:
+    x = np.array(luA[distal:os])
+    y = np.array(plA[distal:os])
+    pb = y/(x + y)
+    pb2 = np.where(pb > pbth)
+    if len(pb2[0])==0:     #if no values above thresh return 0
+        return 0
+    else:
         x = np.array(luA[distal:os])
         y = np.array(plA[distal:os])
-        pb = y/(x + y)
-        pb2 = np.where(pb > pbth)
+        roi = x + y
         roi = roi[pb2]
+        return np.mean(roi)
+    
         
-    return mean(roi)
 
 
 
@@ -467,7 +491,7 @@ def mean_lumen_worst(luA,distal,os):
     """
     index5mm = worst5mm(luA,distal,os)
     lumenarea = luA[index5mm[0]:index5mm[1]]
-    return mean(lumenarea)
+    return np.mean(lumenarea)
 
 def mean_plaque_worst(luA,plA,distal,os):
     """
@@ -479,7 +503,7 @@ def mean_plaque_worst(luA,plA,distal,os):
     """
     index5mm = worst5mm(luA,distal,os)
     plaquearea = plA[index5mm[0]:index5mm[1]]
-    return mean(plaquearea)
+    return np.mean(plaquearea)
 
 def mean_eem_worst(luA,plA,distal,os):
     """
@@ -493,7 +517,7 @@ def mean_eem_worst(luA,plA,distal,os):
     lumenarea = luA[index5mm[0]:index5mm[1]]
     plaquearea = plA[index5mm[0]:index5mm[1]]
     eemarea = lumenarea + plaquearea
-    return mean(eemarea)
+    return np.mean(eemarea)
 
 
 
@@ -503,157 +527,136 @@ def mean_eem_worst(luA,plA,distal,os):
 #### FEATURES 48-57
 #### effective plaque burden in the proximal reference frames bwteen the lesion proximal edge to beginning of the ROI
 
-def no_lumen_prox(luA,plA,os,pbth,th,gap):
+def no_lumen_prox(luA,plA,distal,os,pbth,th,gap):
     """
     luA,plA: list of lumen/plaque area mm2
     os: roi ostium 
-    pbth: plaqueburden threshold for lesion (4.0,3.0,2.5,)
+    pbth: plaqueburden threshold for lesion (0.4,0.7)
     th: threshold for lumen area (4.0,3.0,2.5,)
     gap: number of frames to ignore with pb below threshold in lesion
     returns number of frames with luman area < threshold in proximal reference
     """
-    if(lesion(luA,plA,pbth,gap)[-1][-1]<os):
-        indexprox = lesion(luA,plA,pbth,gap)[-1][-1]
+    if(lesion(luA,plA,distal,os,pbth,gap)[-1][-1]<os):
+        indexprox = lesion(luA,plA,distal,os,pbth,gap)[-1][-1]
+        lumenarea = np.where(luA[indexprox:os]<th)[0]
+        return len(lumenarea)
     else:
-        indexprox = os
-    lumenarea = np.where(luA[indexprox:os]<th)[0]
-    return len(lumenarea)
+        return 0   #no proximal reference
+    
 
-def sum_plaque_prox(luA,plA,os,pbth,th,gap):
+def sum_plaque_prox(luA,plA,distal,os,pbth,gap):
     """
     luA,plA: list of lumen/plaque area mm2
     os: roi ostium 
-    pbth: plaqueburden threshold for lesion (4.0,3.0,2.5,)
-    th: threshold for lumen area (4.0,3.0,2.5,)
+    pbth: plaqueburden threshold for lesion (0.4,0.7)
     gap: number of frames to ignore with pb below threshold in lesion
     returns sum of plaquearea in proximal reference
     """
-    if(lesion(luA,plA,pbth,gap)[-1][-1]<os):
-        indexprox = lesion(luA,plA,pbth,gap)[-1][-1]
+    if(lesion(luA,plA,distal,os,0.4,300)[-1][-1]<os):
+        indexprox = lesion(luA,plA,distal,os,0.4,300)[-1][-1]
+        plaquearea = plA[indexprox:os]
+        return sum(plaquearea)
     else:
-        indexprox = os
-    plaquearea = np.where(plA[indexprox:os]<th)[0]
-    return sum(plaquearea)
+        return 0   #no proximal reference
 
-def sum_eem_prox(luA,plA,os,pbth,th,gap):
+
+def sum_eem_prox(luA,plA,distal,os,pbth,gap):
     """
     luA,plA: list of lumen/plaque area mm2
     os: roi ostium 
-    pbth: plaqueburden threshold for lesion (4.0,3.0,2.5,)
-    th: threshold for lumen area (4.0,3.0,2.5,)
+    pbth: plaqueburden threshold for lesion (0.4,0.7)
     gap: number of frames to ignore with pb below threshold in lesion
     returns sum of eem area in proximal reference
     """
-    if(lesion(luA,plA,pbth,gap)[-1][-1]<os):
-        indexprox = lesion(luA,plA,pbth,gap)[-1][-1]
+    if(lesion(luA,plA,distal,os,0.4,300)[-1][-1]<os):
+        indexprox = lesion(luA,plA,distal,os,0.4,300)[-1][-1]
+        lumenarea = luA[indexprox:os]
+        plaquearea = plA[indexprox:os]
+        eem = lumenarea + plaquearea
+        return sum(eem)
     else:
-        indexprox = os
-    lumenarea = np.where(luA[indexprox:os]<th)[0]
-    plaquearea = np.where(plA[indexprox:os]<th)[0]
-    eem = lumenarea + plaquearea
-    return sum(eem)
+        return 0   #no proximal reference
 
-def pb_prox(luA,plA,os,pbth,th,gap):
+def pb_prox(luA,plA,distal,os,pbth,gap):
     """
     luA,plA: list of lumen/plaque area mm2
     os: roi ostium 
-    pbth: plaqueburden threshold for lesion (4.0,3.0,2.5,)
-    th: threshold for lumen area (4.0,3.0,2.5,)
+    pbth: plaqueburden threshold for lesion (0.4,0.7)
     gap: number of frames to ignore with pb below threshold in lesion
     returns plaqueburden in proximal reference
     """
-    if(lesion(luA,plA,pbth,gap)[-1][-1]<os):
-        indexprox = lesion(luA,plA,pbth,gap)[-1][-1]
-    else:
-        indexprox = os
-    lumenarea = np.where(luA[indexprox:os]<th)[0]
-    plaquearea = np.where(plA[indexprox:os]<th)[0]
-    eem = lumenarea + plaquearea
-    if(sum(eem) == 0):
-        return "na"
-    else:
+    if(lesion(luA,plA,distal,os,0.4,300)[-1][-1]<os):
+        indexprox = lesion(luA,plA,distal,os,0.4,300)[-1][-1]
+        lumenarea = luA[indexprox:os]
+        plaquearea = plA[indexprox:os]
+        eem = lumenarea + plaquearea
         return sum(plaquearea)/sum(eem)
-    
-def mean_lumen_prox(luA,plA,os,pbth,th,gap):
+    else:
+        return 0   #no proximal reference
+         
+def mean_lumen_prox(luA,plA,distal,os,pbth,gap):
     """
     luA,plA: list of lumen/plaque area mm2
     os: roi ostium 
-    pbth: plaqueburden threshold for lesion (4.0,3.0,2.5,)
-    th: threshold for lumen area (4.0,3.0,2.5,)
+    pbth: plaqueburden threshold for lesion (0.4,0.7)
     gap: number of frames to ignore with pb below threshold in lesion
     returns mean lumen area in proximal reference
     """
-    if(lesion(luA,plA,pbth,gap)[-1][-1]<os):
-        indexprox = lesion(luA,plA,pbth,gap)[-1][-1]
-    else:
-        indexprox = os
-    lumenarea = np.where(luA[indexprox:os]<th)[0]
-    if(sum(lumenarea) == 0):
-        return "na"
-    else:
+    if(lesion(luA,plA,distal,os,0.4,300)[-1][-1]<os):
+        indexprox = lesion(luA,plA,distal,os,0.4,300)[-1][-1]
+        lumenarea = luA[indexprox:os]
         return np.mean(lumenarea)
-    
-    
-def mean_plaque_prox(luA,plA,os,pbth,th,gap):
+    else:
+        return 0   #no proximal reference
+        
+def mean_plaque_prox(luA,plA,distal,os,pbth,gap):
     """
     luA,plA: list of lumen/plaque area mm2
     os: roi ostium 
-    pbth: plaqueburden threshold for lesion (4.0,3.0,2.5,)
-    th: threshold for lumen area (4.0,3.0,2.5,)
+    pbth: plaqueburden threshold for lesion (0.4,0.7)
     gap: number of frames to ignore with pb below threshold in lesion
     returns mean plaque area in proximal reference
     """
-    if(lesion(luA,plA,pbth,gap)[-1][-1]<os):
-        indexprox = lesion(luA,plA,pbth,gap)[-1][-1]
-    else:
-        indexprox = os
-    plaquearea = np.where(plA[indexprox:os]<th)[0]
-    if(sum(plaquearea) == 0):
-        return "na"
-    else:
+    if(lesion(luA,plA,distal,os,0.4,300)[-1][-1]<os):
+        indexprox = lesion(luA,plA,distal,os,0.4,300)[-1][-1]
+        plaquearea = plA[indexprox:os]
         return np.mean(plaquearea)
+    else:
+        return 0   #no proximal reference
     
-def mean_eem_prox(luA,plA,os,pbth,th,gap):
+def mean_eem_prox(luA,plA,distal,os,pbth,gap):
     """
     luA,plA: list of lumen/plaque area mm2
     os: roi ostium 
-    pbth: plaqueburden threshold for lesion (4.0,3.0,2.5,)
-    th: threshold for lumen area (4.0,3.0,2.5,)
+    pbth: plaqueburden threshold for lesion (0.4,0.7)
     gap: number of frames to ignore with pb below threshold in lesion
     returns mean eem area in proximal reference
     """
-    if(lesion(luA,plA,pbth,gap)[-1][-1]<os):
-        indexprox = lesion(luA,plA,pbth,gap)[-1][-1]
-    else:
-        indexprox = os
-    lumenarea = np.where(luA[indexprox:os]<th)[0]
-    plaquearea = np.where(plA[indexprox:os]<th)[0]
-    eem = lumenarea + plaquearea
-    if(sum(eem) == 0):
-        return "na"
-    else:
+    if(lesion(luA,plA,distal,os,0.4,300)[-1][-1]<os):
+        indexprox = lesion(luA,plA,distal,os,0.4,300)[-1][-1]
+        lumenarea = luA[indexprox:os]
+        plaquearea = plA[indexprox:os]
+        eem = lumenarea + plaquearea
         return np.mean(eem)
+    else:
+        return 0   #no proximal reference
 
-def max_eem_prox(luA,plA,os,pbth,th,gap):
+def max_eem_prox(luA,plA,distal,os,pbth,gap):
     """
     luA,plA: list of lumen/plaque area mm2
     os: roi ostium 
-    pbth: plaqueburden threshold for lesion (4.0,3.0,2.5,)
-    th: threshold for lumen area (4.0,3.0,2.5,)
+    pbth: plaqueburden threshold for lesion (0.4,0.7)
     gap: number of frames to ignore with pb below threshold in lesion
     returns mean eem area in proximal reference
     """
-    if(lesion(luA,plA,pbth,gap)[-1][-1]<os):
-        indexprox = lesion(luA,plA,pbth,gap)[-1][-1]
-    else:
-        indexprox = os
-    lumenarea = np.where(luA[indexprox:os]<th)[0]
-    plaquearea = np.where(plA[indexprox:os]<th)[0]
-    eem = lumenarea + plaquearea
-    if(sum(eem) == 0):
-        return "na"
-    else:
+    if(lesion(luA,plA,distal,os,0.4,300)[-1][-1]<os):
+        indexprox = lesion(luA,plA,distal,os,0.4,300)[-1][-1]
+        lumenarea = luA[indexprox:os]
+        plaquearea = plA[indexprox:os]
+        eem = lumenarea + plaquearea
         return max(eem)
+    else:
+        return 0   #no proximal reference    
 
 
 
@@ -663,158 +666,139 @@ def max_eem_prox(luA,plA,os,pbth,th,gap):
 #### FEATURES 58-67
 #### effective plaque burden in the distal reference frames bwteen the lesion proximal edge to beginning of the ROI
 
-def no_lumen_distal(luA,plA,distal,pbth,th,gap):
+def no_lumen_distal(luA,plA,distal,os,pbth,th,gap):
     """
     luA,plA: list of lumen/plaque area mm2
     distal: roi distal 
-    pbth: plaqueburden threshold for lesion (4.0,3.0,2.5,)
+    pbth: plaqueburden threshold for lesion (0.4,0.7)
     th: threshold for lumen area (4.0,3.0,2.5,)
     gap: number of frames to ignore with pb below threshold in lesion
     returns number of frames with luman area < threshold in distal reference
     """
-    if(lesion(luA,plA,pbth,gap)[0][0]>distal):
-        indexdistal = lesion(luA,plA,pbth,gap)[0][0]
+    if(lesion(luA,plA,distal,os,pbth,gap)[0][0]>distal):
+        indexdistal = lesion(luA,plA,distal,os,pbth,gap)[0][0]
+        lumenarea = np.where(luA[distal:indexdistal]<th)[0]
+        return len(lumenarea)
     else:
-        indexdistal = distal
-    lumenarea = np.where(luA[distal:indexdistal]<th)[0]
-    return len(lumenarea)
+        return 0   #no distal reference
+    
 
 
-def sum_plaque_distal(luA,plA,distal,pbth,th,gap):
+def sum_plaque_distal(luA,plA,distal,os,pbth,gap):
     """
     luA,plA: list of lumen/plaque area mm2
     distal: roi distal 
-    pbth: plaqueburden threshold for lesion (4.0,3.0,2.5,)
-    th: threshold for lumen area (4.0,3.0,2.5,)
+    pbth: plaqueburden threshold for lesion (0.4,0.7)
     gap: number of frames to ignore with pb below threshold in lesion
     returns sum of plaquearea in distal reference
     """
-    if(lesion(luA,plA,pbth,gap)[0][0]>distal):
-        indexdistal = lesion(luA,plA,pbth,gap)[0][0]
+    if(lesion(luA,plA,distal,os,pbth,gap)[0][0]>distal):
+        indexdistal = lesion(luA,plA,distal,os,pbth,gap)[0][0]
+        plaquearea = plA[distal:indexdistal]
+        return sum(plaquearea)
     else:
-        indexdistal = distal
-    plaquearea = np.where(plA[distal:indexdistal]<th)[0]
-    return sum(plaquearea)
+        return 0   #no distal reference
+    
 
-def sum_eem_distal(luA,plA,distal,pbth,th,gap):
+def sum_eem_distal(luA,plA,distal,os,pbth,gap):
     """
     luA,plA: list of lumen/plaque area mm2
     distal: roi distal 
-    pbth: plaqueburden threshold for lesion (4.0,3.0,2.5,)
-    th: threshold for lumen area (4.0,3.0,2.5,)
+    pbth: plaqueburden threshold for lesion (0.4,0.7)
     gap: number of frames to ignore with pb below threshold in lesion
     returns sum of eem area in distal reference
     """
-    if(lesion(luA,plA,pbth,gap)[0][0]>distal):
-        indexdistal = lesion(luA,plA,pbth,gap)[0][0]
+    if(lesion(luA,plA,distal,os,pbth,gap)[0][0]>distal):
+        indexdistal = lesion(luA,plA,distal,os,pbth,gap)[0][0]
+        lumenarea = luA[distal:indexdistal]
+        plaquearea = plA[distal:indexdistal]
+        eem = lumenarea + plaquearea
+        return sum(eem)
     else:
-        indexdistal = distal
-    lumenarea = np.where(luA[distal:indexdistal]<th)[0]
-    plaquearea = np.where(plA[distal:indexdistal]<th)[0]
-    eem = lumenarea + plaquearea
-    return sum(eem)
+        return 0   #no distal reference
+    
 
-def pb_distal(luA,plA,distal,pbth,th,gap):
+def pb_distal(luA,plA,distal,os,pbth,gap):
     """
     luA,plA: list of lumen/plaque area mm2
     distal: roi distal 
-    pbth: plaqueburden threshold for lesion (4.0,3.0,2.5,)
-    th: threshold for lumen area (4.0,3.0,2.5,)
+    pbth: plaqueburden threshold for lesion (0.4,0.7)
     gap: number of frames to ignore with pb below threshold in lesion
     returns plaqueburden in distal reference
     """
-    if(lesion(luA,plA,pbth,gap)[0][0]>distal):
-        indexdistal = lesion(luA,plA,pbth,gap)[0][0]
-    else:
-        indexdistal = distal
-    lumenarea = np.where(luA[distal:indexdistal]<th)[0]
-    plaquearea = np.where(plA[distal:indexdistal]<th)[0]
-    eem = lumenarea + plaquearea
-    if(sum(eem) == 0):
-        return "na"
-    else:
+    if(lesion(luA,plA,distal,os,pbth,gap)[0][0]>distal):
+        indexdistal = lesion(luA,plA,distal,os,pbth,gap)[0][0]
+        lumenarea = luA[distal:indexdistal]
+        plaquearea = plA[distal:indexdistal]
+        eem = lumenarea + plaquearea
         return sum(plaquearea)/sum(eem)
-    
-def mean_lumen_distal(luA,plA,distal,pbth,th,gap):
+    else:
+        return 0   #no distal reference
+            
+def mean_lumen_distal(luA,plA,distal,os,pbth,gap):
     """
     luA,plA: list of lumen/plaque area mm2
     distal: roi distal 
-    pbth: plaqueburden threshold for lesion (4.0,3.0,2.5,)
-    th: threshold for lumen area (4.0,3.0,2.5,)
+    pbth: plaqueburden threshold for lesion (0.4,0.7)
     gap: number of frames to ignore with pb below threshold in lesion
     returns mean lumen area in distal reference
     """
-    if(lesion(luA,plA,pbth,gap)[0][0]>distal):
-        indexdistal = lesion(luA,plA,pbth,gap)[0][0]
-    else:
-        indexdistal = distal
-    lumenarea = np.where(luA[distal:indexdistal]<th)[0]
-    if(sum(lumenarea) == 0):
-        return "na"
-    else:
+    if(lesion(luA,plA,distal,os,pbth,gap)[0][0]>distal):
+        indexdistal = lesion(luA,plA,distal,os,pbth,gap)[0][0]
+        lumenarea = luA[distal:indexdistal]
         return np.mean(lumenarea)
-    
-    
-def mean_plaque_distal(luA,plA,distal,pbth,th,gap):
+    else:
+        return 0   #no distal reference
+       
+def mean_plaque_distal(luA,plA,distal,os,pbth,gap):
     """
     luA,plA: list of lumen/plaque area mm2
     distal: roi distal  
-    pbth: plaqueburden threshold for lesion (4.0,3.0,2.5,)
-    th: threshold for lumen area (4.0,3.0,2.5,)
+    pbth: plaqueburden threshold for lesion (0.4,0.7)
     gap: number of frames to ignore with pb below threshold in lesion
     returns mean plaque area in distal reference
     """
-    if(lesion(luA,plA,pbth,gap)[0][0]>distal):
-        indexdistal = lesion(luA,plA,pbth,gap)[0][0]
-    else:
-        indexdistal = distal
-    plaquearea = np.where(plA[distal:indexdistal]<th)[0]
-    if(sum(plaquearea) == 0):
-        return "na"
-    else:
+    if(lesion(luA,plA,distal,os,pbth,gap)[0][0]>distal):
+        indexdistal = lesion(luA,plA,distal,os,pbth,gap)[0][0]
+        plaquearea = plA[distal:indexdistal]
         return np.mean(plaquearea)
+    else:
+        return 0   #no distal reference      
     
-def mean_eem_distal(luA,plA,distal,pbth,th,gap):
+def mean_eem_distal(luA,plA,distal,os,pbth,gap):
     """
     luA,plA: list of lumen/plaque area mm2
     distal: roi distal 
-    pbth: plaqueburden threshold for lesion (4.0,3.0,2.5,)
-    th: threshold for lumen area (4.0,3.0,2.5,)
+    pbth: plaqueburden threshold for lesion (0.4,0.7)
     gap: number of frames to ignore with pb below threshold in lesion
     returns mean eem area in distal reference
     """
-    if(lesion(luA,plA,pbth,gap)[0][0]>distal):
-        indexdistal = lesion(luA,plA,pbth,gap)[0][0]
-    else:
-        indexdistal = distal
-    lumenarea = np.where(luA[distal:indexdistal]<th)[0]
-    plaquearea = np.where(plA[distal:indexdistal]<th)[0]
-    eem = lumenarea + plaquearea
-    if(sum(eem) == 0):
-        return "na"
-    else:
+    if(lesion(luA,plA,distal,os,pbth,gap)[0][0]>distal):
+        indexdistal = lesion(luA,plA,distal,os,pbth,gap)[0][0]
+        lumenarea = luA[distal:indexdistal]
+        plaquearea = plA[distal:indexdistal]
+        eem = lumenarea + plaquearea
         return np.mean(eem)
-
-def max_eem_distal(luA,plA,distal,pbth,th,gap):
+    else:
+        return 0   #no distal reference
+        
+def max_eem_distal(luA,plA,distal,os,pbth,gap):
     """
     luA,plA: list of lumen/plaque area mm2
     distal: roi distal 
-    pbth: plaqueburden threshold for lesion (4.0,3.0,2.5,)
-    th: threshold for lumen area (4.0,3.0,2.5,)
+    pbth: plaqueburden threshold for lesion (0.4,0.7)
     gap: number of frames to ignore with pb below threshold in lesion
     returns mean eem area in distal reference
     """
-    if(lesion(luA,plA,pbth,gap)[0][0]>distal):
-        indexdistal = lesion(luA,plA,pbth,gap)[0][0]
-    else:
-        indexdistal = distal
-    lumenarea = np.where(luA[distal:indexdistal]<th)[0]
-    plaquearea = np.where(plA[distal:indexdistal]<th)[0]
-    eem = lumenarea + plaquearea
-    if(sum(eem) == 0):
-        return "na"
-    else:
+    if(lesion(luA,plA,distal,os,pbth,gap)[0][0]>distal):
+        indexdistal = lesion(luA,plA,distal,os,pbth,gap)[0][0]
+        lumenarea = luA[distal:indexdistal]
+        plaquearea = plA[distal:indexdistal]
+        eem = lumenarea + plaquearea
         return max(eem)
+    else:
+        return 0   #no distal reference
+        
 
 
 
@@ -838,8 +822,8 @@ def no_lumen40_prox5(luA,plA,distal,os,pbth,th,gap):
     returns number of frames with luman area < threshold in proximal reference 5mm
     """
     if(lesion(luA,plA,distal,os,pbth,gap)[-1][-1] < (os - 300)):
-        indexprox = lesion(luA,plA,distal,os,0.7,300)[-1][-1]
-        prox5minindex = indexprox + np.argmin(luA[indexprox:os])
+        indexprox = lesion(luA,plA,distal,os,pbth,gap)[-1][-1]
+        prox5minindex = indexprox + np.argmin(luA[indexprox:os])   #index of min lumen in prox ref
         if(prox5minindex > indexprox + 150 and prox5minindex < os - 150):
             prox5start = prox5minindex - 150
             prox5end = prox5minindex + 150
@@ -860,7 +844,7 @@ def sum_plaque_prox5(luA,plA,distal,os,pbth,gap):
     returns sum of plaque area in proximal reference 5mm
     """
     if(lesion(luA,plA,distal,os,pbth,gap)[-1][-1] < (os - 300)):
-        indexprox = lesion(luA,plA,distal,os,0.7,300)[-1][-1]
+        indexprox = lesion(luA,plA,distal,os,pbth,gap)[-1][-1]
         prox5minindex = indexprox + np.argmin(luA[indexprox:os])
         if(prox5minindex > indexprox + 150 and prox5minindex < os - 150):
             prox5start = prox5minindex - 150
@@ -882,7 +866,7 @@ def sum_eem_prox5(luA,plA,distal,os,pbth,gap):
     returns sum of eem in proximal reference 5mm
     """
     if(lesion(luA,plA,distal,os,pbth,gap)[-1][-1] < (os - 300)):
-        indexprox = lesion(luA,plA,distal,os,0.7,300)[-1][-1]
+        indexprox = lesion(luA,plA,distal,os,pbth,gap)[-1][-1]
         prox5minindex = indexprox + np.argmin(luA[indexprox:os])
         if(prox5minindex > indexprox + 150 and prox5minindex < os - 150):
             prox5start = prox5minindex - 150
@@ -905,7 +889,7 @@ def pb_prox5(luA,plA,distal,os,pbth,gap):
     returns plaque burden in proximal reference 5mm
     """
     if(lesion(luA,plA,distal,os,pbth,gap)[-1][-1] < (os - 300)):
-        indexprox = lesion(luA,plA,distal,os,0.7,300)[-1][-1]
+        indexprox = lesion(luA,plA,distal,os,pbth,gap)[-1][-1]
         prox5minindex = indexprox + np.argmin(luA[indexprox:os])
         if(prox5minindex > indexprox + 150 and prox5minindex < os - 150):
             prox5start = prox5minindex - 150
@@ -928,13 +912,13 @@ def mean_lumen_prox5(luA,plA,distal,os,pbth,gap):
     returns mean luman area in proximal reference 5mm
     """
     if(lesion(luA,plA,distal,os,pbth,gap)[-1][-1] < (os - 300)):
-        indexprox = lesion(luA,plA,distal,os,0.7,300)[-1][-1]
+        indexprox = lesion(luA,plA,distal,os,pbth,gap)[-1][-1]
         prox5minindex = indexprox + np.argmin(luA[indexprox:os])
         if(prox5minindex > indexprox + 150 and prox5minindex < os - 150):
             prox5start = prox5minindex - 150
             prox5end = prox5minindex + 150
             lumenarea = luA[prox5start:prox5end]
-            return mean(lumenarea)
+            return np.mean(lumenarea)
         else:
             return 0    #if prox5 minimum lumen area is too close to lesion prox or os return 0
     else:
@@ -950,13 +934,13 @@ def mean_plaque_prox5(luA,plA,distal,os,pbth,gap):
     returns mean plaque area in proximal reference 5mm
     """
     if(lesion(luA,plA,distal,os,pbth,gap)[-1][-1] < (os - 300)):
-        indexprox = lesion(luA,plA,distal,os,0.7,300)[-1][-1]
+        indexprox = lesion(luA,plA,distal,os,pbth,gap)[-1][-1]
         prox5minindex = indexprox + np.argmin(luA[indexprox:os])
         if(prox5minindex > indexprox + 150 and prox5minindex < os - 150):
             prox5start = prox5minindex - 150
             prox5end = prox5minindex + 150
             plaquearea = plA[prox5start:prox5end]
-            return mean(plaquearea)
+            return np.mean(plaquearea)
         else:
             return 0    #if prox5 minimum lumen area is too close to lesion prox or os return 0
     else:
@@ -972,14 +956,14 @@ def mean_eem_prox5(luA,plA,distal,os,pbth,gap):
     returns mean eem in proximal reference 5mm
     """
     if(lesion(luA,plA,distal,os,pbth,gap)[-1][-1] < (os - 300)):
-        indexprox = lesion(luA,plA,distal,os,0.7,300)[-1][-1]
+        indexprox = lesion(luA,plA,distal,os,pbth,gap)[-1][-1]
         prox5minindex = indexprox + np.argmin(luA[indexprox:os])
         if(prox5minindex > indexprox + 150 and prox5minindex < os - 150):
             prox5start = prox5minindex - 150
             prox5end = prox5minindex + 150
             x = np.array(luA[prox5start:prox5end])
             y = np.array(plA[prox5start:prox5end])
-            return mean(x + y)
+            return np.mean(x + y)
         else:
             return 0    #if prox5 minimum lumen area is too close to lesion prox or os return 0
     else:
@@ -995,7 +979,7 @@ def max_eem_prox5(luA,plA,distal,os,pbth,gap):
     returns maximum eem in proximal reference 5mm
     """
     if(lesion(luA,plA,distal,os,pbth,gap)[-1][-1] < (os - 300)):
-        indexprox = lesion(luA,plA,distal,os,0.7,300)[-1][-1]
+        indexprox = lesion(luA,plA,distal,os,pbth,gap)[-1][-1]
         prox5minindex = indexprox + np.argmin(luA[indexprox:os])
         if(prox5minindex > indexprox + 150 and prox5minindex < os - 150):
             prox5start = prox5minindex - 150
@@ -1130,7 +1114,7 @@ def mean_lumen_dist5(luA,plA,distal,os,pbth,gap):
             distal5start = distal5minindex - 150
             distal5end = distal5minindex + 150
             lumenarea = luA[distal5start:distal5end]
-            return mean(lumenarea)
+            return np.mean(lumenarea)
         else:
             return 0    #if distal5 minimum lumen area is too close to lesion prox or os return 0
     else:
@@ -1152,7 +1136,7 @@ def mean_plaque_dist5(luA,plA,distal,os,pbth,gap):
             distal5start = distal5minindex - 150
             distal5end = distal5minindex + 150
             plaquearea = plA[distal5start:distal5end]
-            return mean(plaquearea)
+            return np.mean(plaquearea)
         else:
             return 0    #if distal5 minimum lumen area is too close to lesion prox or os return 0
     else:
@@ -1175,7 +1159,7 @@ def mean_eem_dist5(luA,plA,distal,os,pbth,gap):
             distal5end = distal5minindex + 150
             x = np.array(luA[distal5start:distal5end])
             y = np.array(plA[distal5start:distal5end])
-            return mean(x + y)
+            return np.mean(x + y)
         else:
             return 0    #if distal5 minimum lumen area is too close to lesion prox or os return 0
     else:
@@ -1222,69 +1206,116 @@ def mean_lumen_aver(luA,plA,distal,os,pbth,gap):
 def mean_eem_aver(luA,plA,distal,os,pbth,gap):
     x = mean_eem_prox5(luA,plA,distal,os,pbth,gap)
     y = mean_eem_dist5(luA,plA,distal,os,pbth,gap)
-    return (x + y)/ 2
+    if x == 0:
+        return 0
+    else:
+        return (x + y)/ 2
 
 def area1_stenosis_aver(luA,plA,distal,os,pbth,gap):
     x = mean_lumen_aver(luA,plA,distal,os,pbth,gap)
     y = mla(luA,distal,os)
-    return (x - y)/ x
+    if x == 0:
+        return 0
+    else:
+        return (x - y)/ x
 
 def area1_stenosis_prox5(luA,plA,distal,os,pbth,gap):
     x = mean_lumen_prox5(luA,plA,distal,os,pbth,gap)
     y = mla(luA,distal,os)
-    return (x - y)/ x
+    if x == 0:
+        return 0
+    else:
+        return (x - y)/ x
 
 def area1_stenosis_dist5(luA,plA,distal,os,pbth,gap):
     x = mean_lumen_dist5(luA,plA,distal,os,pbth,gap)
     y = mla(luA,distal,os)
-    return (x - y)/ x
+    if x == 0:
+        return 0
+    else:
+        return (x - y)/ x
 
 def area2_stenosis_aver(luA,plA,distal,os,pbth,gap):
     x = mean_eem_aver(luA,plA,distal,os,pbth,gap)
     y = mla(luA,distal,os)
-    return (x - y)/ x
+    if x == 0:
+        return 0
+    else:
+        return (x - y)/ x
 
 def area2_stenosis_prox5(luA,plA,distal,os,pbth,gap):
     x = mean_eem_prox5(luA,plA,distal,os,pbth,gap)
     y = mla(luA,distal,os)
-    return (x - y)/ x
+    if x == 0:
+        return 0
+    else:
+        return (x - y)/ x
 
 def area2_stenosis_dist5(luA,plA,distal,os,pbth,gap):
     x = mean_eem_dist5(luA,plA,distal,os,pbth,gap)
     y = mla(luA,distal,os)
-    return (x - y)/ x
+    if x == 0:
+        return 0
+    else:
+        return (x - y)/ x
 
 def area3_stenosis_aver(luA,plA,distal,os,pbth,gap):
     x = mean_lumen_aver(luA,plA,distal,os,pbth,gap)
     y = mean_lumen_worst(luA,distal,os)
-    return (x - y)/ x
+    if x == 0:
+        return 0
+    else:
+        return (x - y)/ x
 
 def area3_stenosis_prox5(luA,plA,distal,os,pbth,gap):
     x = mean_lumen_prox5(luA,plA,distal,os,pbth,gap)
     y = mean_lumen_worst(luA,distal,os)
-    return (x - y)/ x
+    if x == 0:
+        return 0
+    else:
+        return (x - y)/ x
 
 def area3_stenosis_dist5(luA,plA,distal,os,pbth,gap):
     x = mean_lumen_dist5(luA,plA,distal,os,pbth,gap)
     y = mean_lumen_worst(luA,distal,os)
-    return (x - y)/ x
+    if x == 0:
+        return 0
+    else:
+        return (x - y)/ x
 
 def area4_stenosis_aver(luA,plA,distal,os,pbth,gap):
     x = mean_eem_aver(luA,plA,distal,os,pbth,gap)
     y = mean_lumen_worst(luA,distal,os)
-    return (x - y)/ x
+    if x == 0:
+        return 0
+    else:
+        return (x - y)/ x
 
 def area4_stenosis_prox5(luA,plA,distal,os,pbth,gap):
     x = mean_eem_prox5(luA,plA,distal,os,pbth,gap)
     y = mean_lumen_worst(luA,distal,os)
-    return (x - y)/ x
+    if x == 0:
+        return 0
+    else:
+        return (x - y)/ x
 
 def area4_stenosis_dist5(luA,plA,distal,os,pbth,gap):
     x = mean_eem_dist5(luA,plA,distal,os,pbth,gap)
     y = mean_lumen_worst(luA,distal,os)
-    return (x - y)/ x
+    if x == 0:
+        return 0
+    else:
+        return (x - y)/ x
     
-    
+################################################################### 
+###################################################################
+
+#### FEATURES 102-112
+
+
+### NOTE: missing 121 and 122
+
+############################  
     
 
 
@@ -1301,22 +1332,34 @@ def area4_stenosis_dist5(luA,plA,distal,os,pbth,gap):
 def ri_mla_ref(luA,plA,distal,os,pbth,gap):
     x = eem_mla(luA,plA,distal,os)
     y = mean_eem_aver(luA,plA,distal,os,pbth,gap)
-    return x/y
+    if y == 0:
+        return 0
+    else:
+        return x/y
 
 def ri_mla_prox5(luA,plA,distal,os,pbth,gap):
     x = eem_mla(luA,plA,distal,os)
     y = mean_eem_prox5(luA,plA,distal,os,pbth,gap)
-    return x/y
+    if y == 0:
+        return 0
+    else:
+        return x/y
 
 def ri_worst_ref(luA,plA,distal,os,pbth,gap):
     x = mean_eem_worst(luA,plA,distal,os)
     y = mean_eem_aver(luA,plA,distal,os,pbth,gap)
-    return x/y
+    if y == 0:
+        return 0
+    else:
+        return x/y
 
 def ri_worst_prox5(luA,plA,distal,os,pbth,gap):
     x = mean_eem_worst(luA,plA,distal,os)
     y = mean_eem_prox5(luA,plA,distal,os,pbth,gap)
-    return x/y
+    if y == 0:
+        return 0
+    else:
+        return x/y
 
 def variance_lumen_worst(luA,distal,os):
     """
@@ -1329,7 +1372,7 @@ def variance_lumen_worst(luA,distal,os):
     lumenarea = luA[index5mm[0]:index5mm[1]]
     return np.var(lumenarea)
 
-def variance_lumen_pb40(luA,plA,distal,os,pbth=4.0):
+def variance_lumen_pb40(luA,plA,distal,os,pbth):
     """
     luA,plA: list of lumen/plaque area mm2
     distal: roi distal
@@ -1352,11 +1395,11 @@ def variance_plaque_worst(luA,plA,distal,os):
     os: roi ostium 
     returns plaque area in worst 5mm 
     """
-    index5mm = worst5mm(luA,plA,distal,os)
+    index5mm = worst5mm(luA,distal,os)
     plaquearea = plA[index5mm[0]:index5mm[1]]
     return np.var(plaquearea)
 
-def variance_plaque_pb40(luA,plA,distal,os,pbth=4.0):
+def variance_plaque_pb40(luA,plA,distal,os,pbth):
     """
     luA,plA: list of lumen/plaque area mm2
     distal: roi distal
@@ -1379,7 +1422,7 @@ def long_eccentricity_worst(luA,plA,distal,os):
     os: roi ostium 
     returns plaque area in worst 5mm 
     """
-    index5mm = worst5mm(luA,plA,distal,os)
+    index5mm = worst5mm(luA,distal,os)
     plaquearea = plA[index5mm[0]:index5mm[1]]
     return np.var(plaquearea)
 
