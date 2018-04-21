@@ -25,7 +25,7 @@ if __name__=='__main__':
     df = picklereader(os.getcwd()+'/data/df18S_rs.p')
     df['luA'] = df['lu'].apply(lambda x: np.array(x))/df['sx0'].apply(lambda x: scale(x)) #convert lumen pixel counts to sqmm
     df['plA'] = df['pl'].apply(lambda x: np.array(x))/df['sx0'].apply(lambda x: scale(x)) #convert plaque pixel counts to sqmm
-    df['pb'] = [plaqueburden(df.ix[i].luA,df.ix[i].plA) for i in df.index] #plaqueburden by frame
+    #df['pb'] = [plaqueburden(df.ix[i].luA,df.ix[i].plA) for i in df.index] #plaqueburden by frame
     #df['f_1'] = roi(df,'pb').apply(lambda x:len_pb(x,0.4)) #feature 1
     #df['f_2'] = roi(df,'pb').apply(lambda x:len_pb(x,0.7)) #feature 2
     
@@ -34,9 +34,10 @@ if __name__=='__main__':
     pbth = 0.4      #plaque burden threshold in lesion
 
     ## SMOOTHING
-    df['pb'] = df.apply(lambda x: list(plaqueburden(x.luA,x.plA)),axis=1)                                   #runtimewarning
+                                       #runtimewarning
     df['luAc'] = df['luA'].apply(lambda x: np.convolve(x,np.ones((50,))/50,mode='same'))                    #smooth luA
     df['plAc'] = df['plA'].apply(lambda x: np.convolve(x,np.ones((50,))/50,mode='same'))                    #smooth plA
+    df['pb'] = df.apply(lambda x: list(plaqueburden(x.luAc,x.plAc)),axis=1) 
     t1 = time.time()
     total = t1-t0
     print('Smoothing - Execution time: ',total,"secs")
@@ -204,7 +205,7 @@ if __name__=='__main__':
 
     # 102-112 Not completed
 
-    #feature 113-120
+    #feature 113-122
     t0 = time.time()
     df['RI_MLA_ref'] = df.apply(lambda x: ri_mla_ref(x.luAc,x.plAc,x.distal,x.OS,pbth,gap),axis=1)
     df['RI_MLA_prox5'] = df.apply(lambda x: ri_mla_prox5(x.luAc,x.plAc,x.distal,x.OS,pbth,gap),axis=1)
@@ -214,10 +215,10 @@ if __name__=='__main__':
     df['variance_lumen_PB40'] = df.apply(lambda x: variance_lumen_pb40(x.luAc,x.plAc,x.distal,x.OS,pbth),axis=1)
     df['variance_plaque_worst'] = df.apply(lambda x: variance_plaque_worst(x.luAc,x.plAc,x.distal,x.OS),axis=1)
     df['variance_plaque_PB40'] = df.apply(lambda x: variance_plaque_pb40(x.luAc,x.plAc,x.distal,x.OS,pbth),axis=1)
+    df['long_eccentricity_worst'] = df.apply(lambda x: long_eccentricity_worst(x.luAc,x.plAc,x.distal,x.OS),axis=1)
+    df['long_eccentricity_PB40'] = df.apply(lambda x: long_eccentricity_pb40(x.luAc,x.plAc,x.distal,x.OS,pbth,gap),axis=1)
     t1 = time.time()
     total = t1-t0
-    print('Feature 113-120 - Execution time: ',total,"secs")
+    print('Feature 113-122 - Execution time: ',total,"secs")
 
-    # 121-122 Not completed
-
-    print('Feature extraction complete')
+    print('Feature extraction complete!!!')

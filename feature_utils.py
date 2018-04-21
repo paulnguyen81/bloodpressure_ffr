@@ -1384,7 +1384,10 @@ def variance_lumen_pb40(luA,plA,distal,os,pbth):
     pb = y/(x + y)
     pb2 = np.where(pb > pbth)[0]
     roi = pb2[distal:os]
-    return np.var(luA[roi])
+    if len(roi) != 0:
+        return np.var(luA[roi])
+    else:
+        return 0
     
 def variance_plaque_worst(luA,plA,distal,os):
     """
@@ -1411,19 +1414,41 @@ def variance_plaque_pb40(luA,plA,distal,os,pbth):
     pb = y/(x + y)
     pb2 = np.where(pb > pbth)[0]
     roi = pb2[distal:os]
-    return np.var(plA[roi])
+    if len(roi) != 0:
+        return np.var(plA[roi])
+    else:
+        return 0
 
 def long_eccentricity_worst(luA,plA,distal,os):
     """
     luA,plA: list of lumen/plaque area mm2
     distal: roi distal
     os: roi ostium 
-    returns plaque area in worst 5mm 
+    returns a ratio of number of frames between MLA and the worst 5mm proximal edge over the total number of frames in 
     """
     index5mm = worst5mm(luA,distal,os)
-    plaquearea = plA[index5mm[0]:index5mm[1]]
-    return np.var(plaquearea)
+    proximal5mm = index5mm[-1]
+    indexmla = np.argmin(luA[distal:os]) + distal
+    ratio = abs(proximal5mm - indexmla)/ abs(os-distal)
+    return ratio
 
+def long_eccentricity_pb40(luA,plA,distal,os,pbth,gap):
+    """
+    luA,plA: list of lumen/plaque area mm2
+    distal: roi distal
+    os: roi ostium 
+    pbth: plaqueburden threshold
+    gap: ignore gaps of length X in lesion region
+    returns a ratio of number of frames between MLA and the pb>40% region proximal edge over the total number of frames in 
+    """
+    lesionlst = lesion(luA,plA,distal,os,pbth,gap)
+    if lesionlst != -1:
+        proximal = lesion(luA,plA,distal,os,pbth,gap)[-1][-1]
+        indexmla = np.argmin(luA[distal:os]) + distal
+        ratio = abs(proximal - indexmla)/ abs(os-distal)
+        return ratio
+    else:
+        return 0
 
 ################################################################### 
 ###################################################################
