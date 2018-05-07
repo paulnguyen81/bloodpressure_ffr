@@ -6,10 +6,17 @@ Heart disease is the leading cause of death in both men and women in the United 
 
 # Process
 
-1. Feature extraction
-2. Exploration
-3. Correlation and Feature reduction
-5. Models
+1. Feature extraction  
+extract_features.py  
+smooth.ipynb  
+2. Exploration  
+correlation.ipynb
+3. Correlation and Feature reduction  
+correlation.ipynb
+5. Models  
+machinelearning-reduce.ipynb  
+dfcorr_reduce.pdf  
+dfcorr.pdf
     * Random Forest
     * SVM
     * Adaboost
