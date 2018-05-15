@@ -1,3 +1,5 @@
+.gitignore
+.ipynb_checkpoints
 hidden
 data
 _pycache_
